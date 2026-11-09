@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 가위바위보</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: linear-gradient(160deg, #1b1f3b, #0d0f1e);
+    color: #fff; font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 14px 16px; gap: 12px; }
+
+  /* 1. 제목 + 가위바위보 이미지 */
+  header { display: flex; align-items: center; gap: 16px; }
+  header h1 { margin: 0; font-size: 40px; letter-spacing: 2px; }
+  .hands { font-size: 44px; display: flex; gap: 6px; }
+  .hands span { display: inline-block; animation: bounce 1.2s infinite; }
+  .hands span:nth-child(2) { animation-delay: .2s; }
+  .hands span:nth-child(3) { animation-delay: .4s; }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+  /* 2. 버튼 */
+  .buttons { display: flex; gap: 14px; }
+  button {
+    font-size: 20px; font-weight: bold; padding: 10px 28px;
+    border: none; border-radius: 12px; cursor: pointer; color: #fff;
+  }
+  #startBtn { background: #22c55e; }
+  #stopBtn  { background: #ef4444; }
+  button:disabled { opacity: .4; cursor: default; }
+
+  /* 3. 카메라 */
+  .cam-wrap {
+    position: relative; width: min(640px, 100%); aspect-ratio: 4 / 3;
+    border-radius: 16px; overflow: hidden; border: 3px solid #38bdf8; background: #000;
+  }
+  video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #countdown {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 120px; font-weight: bold; color: #fff; text-shadow: 0 0 20px #000;
+    pointer-events: none;
+  }
+  #status {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 8px;
+    background: rgba(0,0,0,.55); text-align: center; font-size: 18px;
+  }
+
+  /* 4. 결과 */
+  .panel {
+    width: min(640px, 100%); background: rgba(255,255,255,.08);
+    border-radius: 16px; padding: 12px 18px;
+  }
+  .row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 22px; }
+  .row b { color: #fde047; }
+  #resultText.win  { color: #4ade80; }
+  #resultText.lose { color: #f87171; }
+  #resultText.draw { color: #e5e7eb; }
+
+  /* 5. 점수 */
+  .score { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.2); justify-content: center; gap: 28px; }
+
+  /* 6. 폭죽 */
+  #fireworks { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+  #winBanner {
+    position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%) scale(0);
+    font-size: 56px; font-weight: bold; color: #fde047; text-shadow: 0 0 20px #f97316;
+    z-index: 51; pointer-events: none; transition: transform .3s;
+    white-space: nowrap;
+  }
+  #winBanner.show { transform: translate(-50%, -50%) scale(1); }
+</style>
+</head>
+<body>
+
+<!-- 1. 제목 -->
+<header>
+  <div class="hands"><span>✌️</span><span>✊</span><span>✋</span></div>
+  <h1>AI 가위바위보</h1>
+</header>
+
+<!-- 2. 버튼 -->
+<div class="buttons">
+  <button id="startBtn">게임 시작</button>
+  <button id="stopBtn" disabled>게임 종료</button>
+</div>
+
+<!-- 3. 카메라 -->
+<div class="cam-wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <div id="countdown"></div>
+  <div id="status">카메라 준비 중…</div>
+</div>
+
+<!-- 4, 5. 결과와 점수 -->
+<div class="panel">
+  <div class="row">
+    <div>내 제스처(AI 인식): <b id="myHand">-</b></div>
+    <div>컴퓨터: <b id="comHand">-</b></div>
+    <div>결과: <b id="resultText">-</b></div>
+  </div>
+  <div class="row score">
+    <div>승: <b id="winCount">0</b></div>
+    <div>무승부: <b id="drawCount">0</b></div>
+    <div>패: <b id="loseCount">0</b></div>
+  </div>
+</div>
+
+<canvas id="fireworks"></canvas>
+<div id="winBanner">🎉 당신이 이겼습니다! 🎉</div>
+
+<script>
+  // ===== Roboflow 설정 (잘 동작하던 RPS_Test.html과 같은 방식) =====
+  const API_KEY = "WfeAh60pg7bHw2RyH2fM";
+  const API_URL = "https://serverless.roboflow.com/processed-rock-paper-wijwi/1?api_key=" + API_KEY;
+  const MIN_CONFIDENCE = 0.5;   // 이보다 낮으면 "인식 안 됨"
+  const ROUND_SECONDS = 3;      // 3초 간격으로 한 판씩 진행
+  // ================================================================
+
+  const HANDS = ["scissors", "rock", "paper"];
+  const NAMES = { rock: "바위 ✊", paper: "보 ✋", scissors: "가위 ✌️" };
+
+  const video = document.getElementById("video");
+  const statusEl = document.getElementById("status");
+  const countdownEl = document.getElementById("countdown");
+  const myHandEl = document.getElementById("myHand");
+  const comHandEl = document.getElementById("comHand");
+  const resultEl = document.getElementById("resultText");
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn = document.getElementById("stopBtn");
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  let playing = false;
+  let roundTimer = null;
+  const score = { win: 0, draw: 0, lose: 0 };
+
+  // ---------- 카메라 ----------
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      statusEl.textContent = "'게임 시작' 버튼을 눌러 주세요";
+    } catch (err) {
+      statusEl.textContent = "카메라 오류: " + err.message;
+      startBtn.disabled = true;
+    }
+  }
+
+  // 현재 화면을 JPEG base64 글자로 바꾸기
+  function captureFrame() {
+    const w = 320;
+    const h = Math.round(video.videoHeight * (w / video.videoWidth));
+    canvas.width = w; canvas.height = h;
+    ctx.drawImage(video, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+  }
+
+  // ---------- AI 인식 (Roboflow) ----------
+  async function infer() {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: captureFrame()
+    });
+    if (!res.ok) throw new Error("API 오류 " + res.status);
+    const p = await res.json();
+    return { top: (p.top || "").toLowerCase(), confidence: p.confidence ?? 0 };
+  }
+
+  // ---------- 게임 진행 ----------
+  function judge(me, com) {
+    if (me === com) return "draw";
+    if ((me === "rock" && com === "scissors") ||
+        (me === "scissors" && com === "paper") ||
+        (me === "paper" && com === "rock")) return "win";
+    return "lose";
+  }
+
+  // 3 → 2 → 1 카운트다운 후 한 판 진행
+  function nextRound() {
+    if (!playing) return;
+    let n = ROUND_SECONDS;
+    countdownEl.textContent = n;
+    statusEl.textContent = "손 모양을 준비하세요!";
+    roundTimer = setInterval(() => {
+      n--;
+      if (n > 0) {
+        countdownEl.textContent = n;
+      } else {
+        clearInterval(roundTimer);
+        countdownEl.textContent = "✋";
+        playRound();
+      }
+    }, 1000);
+  }
+
+  async function playRound() {
+    statusEl.textContent = "AI가 손 모양을 인식하는 중…";
+    try {
+      const { top, confidence } = await infer();
+      if (!playing) return;
+
+      if (!NAMES[top] || confidence < MIN_CONFIDENCE) {
+        myHandEl.textContent = "인식 안 됨";
+        comHandEl.textContent = "-";
+        resultEl.textContent = "다시!";
+        resultEl.className = "";
+        statusEl.textContent = "손이 잘 보이게 해 주세요";
+      } else {
+        const com = HANDS[Math.floor(Math.random() * 3)];
+        const r = judge(top, com);
+        score[r]++;
+
+        myHandEl.textContent = `${NAMES[top]} (${(confidence * 100).toFixed(0)}%)`;
+        comHandEl.textContent = NAMES[com];
+        resultEl.textContent = { win: "승", draw: "무승부", lose: "패" }[r];
+        resultEl.className = r;
+        document.getElementById("winCount").textContent = score.win;
+        document.getElementById("drawCount").textContent = score.draw;
+        document.getElementById("loseCount").textContent = score.lose;
+        statusEl.textContent = "다음 판 준비!";
+
+        if (r === "win") celebrate();
+      }
+    } catch (err) {
+      statusEl.textContent = "인식 오류: " + err.message;
+    }
+    countdownEl.textContent = "";
+    if (playing) nextRound();   // 결과는 다음 카운트다운 동안 계속 보임
+  }
+
+  startBtn.addEventListener("click", () => {
+    if (playing) return;
+    playing = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    score.win = score.draw = score.lose = 0;
+    ["winCount", "drawCount", "loseCount"].forEach(id => document.getElementById(id).textContent = 0);
+    speak(""); // 브라우저 음성 기능을 버튼 클릭 때 미리 깨워 둠
+    nextRound();
+  });
+
+  stopBtn.addEventListener("click", () => {
+    playing = false;
+    clearInterval(roundTimer);
+    countdownEl.textContent = "";
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    statusEl.textContent = `게임 종료! 승 ${score.win} · 무승부 ${score.draw} · 패 ${score.lose}`;
+  });
+
+  // ---------- 6. 이겼을 때: 음성 + 폭죽 ----------
+  function speak(text) {
+    if (!("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "ko-KR";
+    u.rate = 1;
+    speechSynthesis.speak(u);
+  }
+
+  function celebrate() {
+    speak("당신이 이겼습니다.");
+    const banner = document.getElementById("winBanner");
+    banner.classList.add("show");
+    setTimeout(() => banner.classList.remove("show"), 1800);
+    for (let i = 0; i < 6; i++) setTimeout(launchFirework, i * 250);
+  }
+
+  const fw = document.getElementById("fireworks");
+  const fctx = fw.getContext("2d");
+  let particles = [];
+  let animating = false;
+
+  function resizeFw() { fw.width = innerWidth; fw.height = innerHeight; }
+  addEventListener("resize", resizeFw);
+  resizeFw();
+
+  function launchFirework() {
+    const x = fw.width * (0.15 + Math.random() * 0.7);
+    const y = fw.height * (0.15 + Math.random() * 0.4);
+    const hue = Math.floor(Math.random() * 360);
+    for (let i = 0; i < 70; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 5;
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 60 + Math.random() * 30,
+        color: `hsl(${hue + Math.random() * 40}, 100%, 60%)`
+      });
+    }
+    if (!animating) { animating = true; requestAnimationFrame(drawFw); }
+  }
+
+  function drawFw() {
+    fctx.clearRect(0, 0, fw.width, fw.height);
+    particles.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      p.vy += 0.06;          // 중력
+      p.vx *= 0.98; p.vy *= 0.98;
+      p.life--;
+      fctx.globalAlpha = Math.max(p.life / 90, 0);
+      fctx.fillStyle = p.color;
+      fctx.beginPath();
+      fctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      fctx.fill();
+    });
+    fctx.globalAlpha = 1;
+    particles = particles.filter(p => p.life > 0);
+    if (particles.length) requestAnimationFrame(drawFw);
+    else { animating = false; fctx.clearRect(0, 0, fw.width, fw.height); }
+  }
+
+  startCamera();
+</script>
+</body>
+</html>
