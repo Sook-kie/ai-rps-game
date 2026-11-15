@@ -3,7 +3,7 @@
 웹캠으로 내 손 모양을 AI(Roboflow)가 인식해서 컴퓨터와 가위바위보를 하는 HTML 게임입니다.
 
 - ▶ **바로 하기:** https://sook-kie.github.io/ai-rps-game/
-- ⬇ **파일 받기:** 게임 화면의 **파일 다운로드** 버튼을 누르거나, [AI-RPS-game.html](https://github.com/Sook-kie/ai-rps-game/blob/main/AI-RPS-game.html) 화면에서 오른쪽 위 다운로드(↓) 아이콘을 누르세요.
+- ⬇ **파일 받기:** [AI-RPS-game.html](https://github.com/Sook-kie/ai-rps-game/blob/main/AI-RPS-game.html) 화면에서 오른쪽 위 다운로드(↓) 아이콘을 누르세요.
 
 ## 실행 방법
 
