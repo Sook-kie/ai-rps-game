@@ -30,6 +30,10 @@
   }
   #startBtn { background: #22c55e; }
   #stopBtn  { background: #ef4444; }
+  #downloadBtn {
+    font-size: 20px; font-weight: bold; padding: 10px 28px; border-radius: 12px;
+    background: #3b82f6; color: #fff; text-decoration: none;
+  }
   button:disabled { opacity: .4; cursor: default; }
 
   /* 3. 카메라 */
@@ -85,6 +89,7 @@
 <div class="buttons">
   <button id="startBtn">게임 시작</button>
   <button id="stopBtn" disabled>게임 종료</button>
+  <a id="downloadBtn" href="AI-RPS-game.html" download="AI-RPS-game.html">파일 다운로드</a>
 </div>
 
 <!-- 3. 카메라 -->
@@ -113,8 +118,10 @@
 
 <script>
   // ===== Roboflow 설정 (잘 동작하던 RPS_Test.html과 같은 방식) =====
-  const API_KEY = "여기에_Roboflow_API_키를_입력하세요";
-  const API_URL = "https://serverless.roboflow.com/processed-rock-paper-wijwi/1?api_key=" + API_KEY;
+  // 키를 코드에 직접 넣어도 되고, 비워 두면 '게임 시작'을 누를 때 입력 창이 떠요.
+  // 입력한 키는 이 브라우저에만 저장돼요. (다른 사람에게는 보이지 않음)
+  let API_KEY = "여기에_Roboflow_API_키를_입력하세요";
+  const MODEL_URL = "https://serverless.roboflow.com/processed-rock-paper-wijwi/1";
   const MIN_CONFIDENCE = 0.5;   // 이보다 낮으면 "인식 안 됨"
   const ROUND_SECONDS = 3;      // 3초 간격으로 한 판씩 진행
   // ================================================================
@@ -162,11 +169,15 @@
 
   // ---------- AI 인식 (Roboflow) ----------
   async function infer() {
-    const res = await fetch(API_URL, {
+    const res = await fetch(MODEL_URL + "?api_key=" + encodeURIComponent(API_KEY), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: captureFrame()
     });
+    if (res.status === 401 || res.status === 403) {
+      try { localStorage.removeItem("roboflowKey"); } catch (e) {}
+      throw new Error("API 키가 맞지 않아요. 게임 종료 후 다시 시작해서 키를 새로 입력하세요.");
+    }
     if (!res.ok) throw new Error("API 오류 " + res.status);
     const p = await res.json();
     return { top: (p.top || "").toLowerCase(), confidence: p.confidence ?? 0 };
@@ -234,8 +245,23 @@
     if (playing) nextRound();   // 결과는 다음 카운트다운 동안 계속 보임
   }
 
+  // 키 준비: 코드에 키가 없으면 저장된 키를 쓰고, 그것도 없으면 물어봄
+  function ensureKey() {
+    if (API_KEY && !API_KEY.startsWith("여기에")) return true;
+    let saved = null;
+    try { saved = localStorage.getItem("roboflowKey"); } catch (e) {}
+    if (!saved) {
+      saved = (prompt("Roboflow API 키를 입력하세요.\n(이 브라우저에만 저장됩니다)") || "").trim();
+      if (!saved) { statusEl.textContent = "API 키가 있어야 게임을 할 수 있어요"; return false; }
+      try { localStorage.setItem("roboflowKey", saved); } catch (e) {}
+    }
+    API_KEY = saved;
+    return true;
+  }
+
   startBtn.addEventListener("click", () => {
     if (playing) return;
+    if (!ensureKey()) return;
     playing = true;
     startBtn.disabled = true;
     stopBtn.disabled = false;
